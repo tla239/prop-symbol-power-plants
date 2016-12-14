@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset=utf-8 />
+    <title>Lab 09 Submission</title>
+    <meta name='viewport' content='initial-scale=1,maximum-scale=1,user-scalable=no' />
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.0.2/dist/leaflet.css" />
+    <link href='http://fonts.googleapis.com/css?family=Lato' rel='stylesheet' type='text/css'>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: grey;
+            font-family: Lato, sans-serif;
+            color: white;
+        }
+        
+        header {
+            padding: 6px 10%;
+        }
+        
+        h1 {
+            display: inline-block;
+            margin-right: 20px;
+            color: white;
+        }
+        
+        h2 {
+            display: inline-block;
+            color: white;
+        }
+        
+        #map {
+            width: 80%;
+            height: 540px;
+            margin: 10px auto;
+        }
+        
+        footer {
+            padding: 6px 10%;
+            width: 80%;
+        }
+        
+        p {
+            font-size: 1em;
+            color: white;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>Power Plants Across the Nation</h1>
+        <h2>Comparative look at Power Sources</h2>
+    </header>
+
+    <div id='map'></div>
+
+    <footer>
+        <p>Map authored by Tara Lanzrath</p>
+        <p>Click on the above map to show power plants within a 500 km radius of your click. This map shows circles for Nuclear, Hydro-Electric and Wind Power across the United States. Although not all power sources are shown on the map, summary statistics are available of all types of fuel sources within the 500 km radius. Use the map to compare the megawatt capacity between power sources. The basemap is a useful tool that highlights areas of power use at night, while the summary statistics can explain the main source of use. For an interesting read visit the <a href="http://linkeddata4.dia.fi.upm.es/wordpress-multi/cities-at-night/"> Cities at Night</a> page.</p>
+    </footer>
+
+    <script src="https://unpkg.com/leaflet@1.0.2/dist/leaflet.js"></script>
+    <script src="power-plants.js"></script>
+
+    <script>
+        var map = L.map('map', {
+            center: [36, -94],
+            zoom: 4,
+        });
+
+        var tiles = L.tileLayer('http://map1.vis.earthdata.nasa.gov/wmts-webmerc/VIIRS_CityLights_2012/default/{time}/{tilematrixset}{maxZoom}/{z}/{y}/{x}.{format}', {
+            attribution: 'Imagery provided by services from the Global Imagery Browse Services (GIBS), operated by the NASA/GSFC/Earth Science Data and Information System (<a href="https://earthdata.nasa.gov">ESDIS</a>) with funding provided by NASA/HQ.',
+            bounds: [[-85.0511287776, -179.999999975], [85.0511287776, 179.999999975]],
+            minZoom: 1,
+            maxZoom: 8,
+            format: 'jpg',
+            time: '',
+            tilematrixset: 'GoogleMapsCompatible_Level'
+        });
+
+        tiles.addTo(map);
+        //define "spotlight" circle appearance and add to map
+        var radiusCircle = L.circle([0, 0], 500000, {
+            fillcolor: 'white',
+            fillOpacity: .1,
+            color: 'whitesmoke',
+            opacity: .2,
+            weight: 4,
+        }).addTo(map);
+
+        var commonStyles = {
+            weight: 1,
+            stroke: 1,
+            fillOpacity: .8
+        }
+
+        var layerInfo = {
+            nuclearLayer: {
+                source: "Nuclear",
+                color: "#7FFF00"
+            },
+            hydroLayer: {
+                source: "Hydro",
+                color: '#1f78b4'
+            },
+            windLayer: {
+                source: "Wind",
+                color: '#a6cee3'
+            }
+        };
+        //filter layers to only include those listed above (Nuclear, Hydro, and Wind)
+        var geoJsonLayers = {};
+
+        for (var layers in layerInfo) {
+            geoJsonLayers[layers] = L.geoJson(plants, {
+                pointToLayer: function (feature, latlng) {
+                    return L.circleMarker(latlng, commonStyles);
+
+                },
+                filter: function (feature) {
+                    if (feature.properties.fuel_source[layerInfo[layers].source]) {
+                        return feature;
+                    }
+                },
+                style: function (feature) {
+                    return {
+                        color: layerInfo[layers].color,
+                        fillColor: layerInfo[layers].color,
+                        radius: getRadius(feature.properties.fuel_source[layerInfo[layers].source])
+                    }
+                }
+
+            }).addTo(map);
+        }
+
+        function getRadius(val) {
+            var radius = Math.sqrt(val / Math.PI);
+            return radius * .8;
+        }
+
+
+        //define variable for allLayers for statistics
+        var allLayers = L.geoJson(plants);
+
+        map.on('click', function (e) {
+            var stats = {};
+            //for areas within 500 km, summarize all layers mw capacity within that radius
+            allLayers.eachLayer(function (layer) {
+                var distance = e.latlng.distanceTo(layer.getLatLng()) / 1000;
+                if (distance <= 500) {
+                    var props = layer.feature.properties;
+                    for (var source in props.fuel_source) {
+                        if (stats[source]) {
+                            stats[source] += props.fuel_source[source];
+                        } else {
+                            stats[source] = props.fuel_source[source];
+                        }
+                    }
+                }
+            })
+
+            //console.log(stats);
+            radiusCircle.setLatLng(e.latlng);
+
+            var statsContent = " ";
+            for (stat in stats) {
+                statsContent += "<b>" + stat + "</b>" + ': ' + stats[stat].toLocaleString() + " " + "MW<br>"
+            }
+            radiusCircle.bindPopup(statsContent).openPopup();
+
+            //for loop that draws geoJsonLayers above within 500 km of click
+            for (var layers in layerInfo) {
+                console.log(e.latlng); //access to the click coordinates        
+                geoJsonLayers[layers].eachLayer(function (layer) {
+                    var distance = e.latlng.distanceTo(layer.getLatLng()) / 1000; //distance as km
+
+                    if (distance > 500) {
+                        layer.setStyle({
+                            stroke: false,
+                            fill: false
+                        });
+                    } else {
+                        layer.setStyle({
+                            stroke: true,
+                            fill: true
+                        });
+
+                        var props = layer.feature.properties;
+                        var content = "<b>" + props.plant_name + "</b>" + "<br>";
+                        content += layerInfo[layers].source + ": " + props.fuel_source[layerInfo[layers].source].toLocaleString() + " " + "MW" + "<br>";
+                        content += "I am <b>" + distance.toLocaleString() + " " + "km</b><br> from the click point."
+                        layer.bindPopup(content)
+                    }
+                    //console.log(layers, layerInfo[layers]);
+                });
+            }
+        });
+        //hard code the styles into the layer control window
+        var sourcesLayers = {
+            "<b style='color:#7FFF00; text-shadow: 0px 0px 2px #333;'>Nuclear</b>": geoJsonLayers.nuclearLayer,
+            "<b style='color:#1f78b4'>Hydro</b>": geoJsonLayers.hydroLayer,
+            "<b style='color:#a6cee3'>Wind</b>": geoJsonLayers.windLayer,
+        }
+        L.control.layers(null, sourcesLayers, {
+            collapsed: false
+        }).addTo(map);
+    </script>
+
+</body>
+
+</html>
